@@ -118,7 +118,9 @@ conceptually run independent of the others in the system. The white board gave
 us the freedom to compose these independently executing modules and find areas
 where we needed to add communication channels between them.
 
-#### PICTURE
+<p align="center">
+    <img src="./pictures/second.jpg" width="600" heigth:"400"/>
+</p>
 
 The route handler, the token manager, and the rate loader were the three
 components we identified as required for processing a request to load rates. It
@@ -132,7 +134,10 @@ task, and communicate result through `channels`. Groups of workers that perform
 the same tasks can be regarded as a pool of workers. They all listen on a single
 channel for requests they can process.
 
-#### PICTURE
+<p align="center">
+    <img src="./pictures/third.jpg" width="600" heigth:"400"/>
+</p>
+
 
 How many rate loaders? It depends on the application, but this is now a
 configurable parameter. It does not have to be an exact number either. One might
