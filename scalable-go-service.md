@@ -37,11 +37,11 @@ our concurrent program.
 
 If you are not familiar, `go` is a relatively new language and is designed based
 on modern understanding of parallel computing. Its primitive types make
-designing and building concurrant applications simple and fun. A `goroutine` can
+designing and building concurrent applications simple and fun. A `goroutine` can
 be thought of an inexpensive and lightweight thread. A `channel` enables two or
 more routines to communicate with each other, similar to a pipe. The language
 also provides a multiway concurrent control switch through the `select`
-statement, which enables interactions with multiple `channel`s. So, creating a
+statement, which enables interactions with multiple `channels`. So, creating a
 `goroutine` is cheap and we are able to use first-class primitives to facilitate
 conversation between them. But how do we use these features to design and
 implement a scalable service for gathering hotel rates?
@@ -74,7 +74,7 @@ process.
 
 ```go
 
-// given an array of hotel ids and seach params, concurrantly load rates for each hotel
+// given an array of hotel ids and search params, concurrently load rates for each hotel
 func getRates(hotelIds []int, checkInDate string, checkOutDate string) []hotelWithRates {
    var rates []hotelWithRates
    ch := make(chan hotelWithRates, len(hotelIds))
@@ -290,34 +290,28 @@ loop:
 func (tl *TokenLoader) Stop() {
 	close(tl.stop)
 }
-
 ```
 
 ## Importance of Communication
 
-As our vendor services have grown, we found that we would return to the white
-board time and again whenever we added new features and functionality. The
-discussion usually revolved around whether we needed to add another worker to
-implement some trivial functionality. For example, we wanted to log all raw
-communication to and from the vendor APIs, but since they were typically large,
-we wanted to store them in S3. Since we already have a service that abstracts
-the intricacies of using AWS S3 APIs, all we had to do was send a request to
-this service along with what we wanted to get logged. This could be, and was,
-initially implemented as a simple function call. Everywhere we wanted to log, we
-would call this function and it was relatively simple.
+As these vendor services grow, the teams has had some discussions around how
+much we should stick to the worker model as we add features. The debate usually
+revolves around whether another worker or pool of workers is required to add
+small features, which would normally be implemented as helper functions. For
+example, a recent feature we added was the ability to log all interactions with
+the vendors' APIs to S3. This feature was initially implemented with a simple
+helper function that would take a JSON object and log it in our S3 bucket. To
+ensure that the request to S3 did not block the regular flow, we called the
+helper function in a `goroutine`.
 
-But, this was not consistent with the rest of the system. When designing the
-concurrent structure for loading rates, we were discussing how the program
-should behave so that it matches. The program is composed of independently
-executable components that are explicitly connected with channels.  It then
-makes sense that any other independently executable component should be
-implemented as another worker, connected to other workers if needed through a
-channel. The clarity and consistency in the implementation not only helps new
-engineers learn the code base quickly, but it also allows the team to discuss
-whether the design makes sense as the program grows. The worker model might make
-sense now, but if we see that we have to wrestle with a lot of issues as the
-program grows, it becomes clear that we need to reevaluate the design.
-
+This solution was not consistent with the rest of the system. Conceptually we
+had added a component that could execute independently but effectively
+communicating that as we did with other concurrent modules. The failure to
+communicate clearly made this part of the program hard to follow and it would be
+confusing to new engineers. Furthermore, we had moved away from the paradigm
+identified as optimum for the problem. It would be difficult to accurately
+assess the overall solution if we do not consistently follow and communicate the
+strategy.
 
 ## Helpful Links
 
