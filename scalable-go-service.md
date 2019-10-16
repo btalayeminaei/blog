@@ -145,6 +145,154 @@ configure a lower and an upper bound for how many rate loaders they want in
 their app and can add logic to dynamically scale to throw limits based on the
 current load.
 
+## Sample Code
+
+#### Main
+
+```go
+func main() {
+	var wg sync.WaitGroup
+	tokenRQChan := make(chan domain.TokenRQ)
+	ratesRQChan := make(chan domain.RateRQ, rateLoaderCount*2)
+
+	var tokenLoader = TokenLoader{
+		In:   tokenRQChan,
+	}
+	var rateLoaderPool = RateLoaderPool{
+		Count:         viper.GetInt("rateLoaderCount"),
+		In:            ratesRQChan,
+		TokenRQChan:   tokenRQChan,
+	}
+
+	appRouter := mux.NewRouter()
+	appRouter.HandleFunc("/rates", RatesHandler(ratesRQChan))
+	srv := http.Server{
+		Addr:    viper.GetString("server.host") + ":" + viper.GetString("server.port"),
+		Handler: appRouter,
+	}
+
+	wg.Add(1)
+	go func() {
+		tokenLoader.Start()
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		rateLoaderPool.Start()
+		wg.Done()
+	}()
+
+    // omitting implementation of gracefully shutting down all the workers
+}
+```
+
+#### Rates Route Handler
+
+```go
+func RatesHandler(ratesRQChan chan domain.RateRQ) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+	    var rates []types.HotelRateInfo
+	    rateRSChan := make(chan RateRS, len(r.HotelIds))
+	    for _, hotelID := range r.HotelIds {
+	    	ratesRQChan <- RateRQ{
+	    		HotelID:                 hotelID,
+	    		CheckInDate:             r.CheckInDate,
+	    		CheckOutDate:            r.CheckOutDate,
+	    		RateRSChan:              rateRSChan,
+	    	}
+	    }
+	    for range p.HotelIds {
+	    	res := <-rateRSChan
+            rates = append(rates, res.HotelRateInfo)
+	    }
+		writeResponse(&w, createJsonResponse(r.Context(), rates, http.StatusOK))
+	}
+}
+```
+
+#### Rate Loader Pool
+
+```go
+type RateLoaderPool struct {
+	Count         int
+	In            chan RateRQ
+	TokenRQChan   chan<- TokenRQ
+	stop          chan struct{}
+}
+
+// Start initializes and starts n unique rate loader based on the Count parameter.
+// Each rate loader listens for requests on the pool's In channel.
+// For each request, a loader asks for a token through the TokenRQChan,
+// gets rates from the vendor, and puts the result on the requests'
+// desired response channel (RateRSChan).
+func (rlp *RateLoaderPool) Start() {
+	rlp.stop = make(chan struct{}, 1)
+	var wg sync.WaitGroup
+	for i := 0; i < rlp.Count; i++ {
+		wg.Add(1)
+		tokenRSChan := make(chan TokenRS)
+		go func() {
+		loop:
+			for {
+				select {
+				case rq := <-rlp.In:
+
+					// ask for a token from a token loader
+					rlp.TokenRQChan <- TokenRQ{...}
+					token := <-tokenRSChan
+
+					// get rates for a hotel
+					r := getRateFromVendor(...)
+
+					rq.RateRSChan <- RateRS{r}
+				case <-rlp.stop:
+					break loop
+				}
+			}
+			wg.Done()
+		}()
+	}
+    // blocks until all workers in the pool have stopped
+	wg.Wait()
+}
+
+// Stop stops all workers in the pool
+func (rlp *RateLoaderPool) Stop() {
+	close(rlp.stop)
+}
+```
+
+#### Token Loader
+
+```go
+type TokenLoader struct {
+	In   <-chan TokenRQ
+	stop chan struct{}
+}
+
+// Start initializes and starts the token loader
+func (tl *TokenLoader) Start() {
+	tl.stop = make(chan struct{}, 1)
+	var token *TokenRS
+loop:
+	for {
+		select {
+		case rq := <-tl.In:
+			rq.TokenRSChan <- getAuthenticationToken(...)
+		case <-tl.stop:
+			break loop
+		}
+	}
+}
+
+// Stop token loader
+func (tl *TokenLoader) Stop() {
+	close(tl.stop)
+}
+
+```
+
 ## Importance of Communication
 
 As our vendor services have grown, we found that we would return to the white
@@ -173,12 +321,8 @@ program grows, it becomes clear that we need to reevaluate the design.
 
 ## Helpful Links
 
-<https://blog.golang.org/share-memory-by-communicating>
-<https://medium.com/@1_00794/parallelism-models-actors-vs-csp-vs-multithreading-f1bab1a2ed6b>
-<https://www.youtube.com/watch?v=cN_DpYBzKso>
-<http://www.usingcsp.com/cspbook.pdf>
+<https://blog.golang.org/share-memory-by-communicating><br/>
+<https://medium.com/@1_00794/parallelism-models-actors-vs-csp-vs-multithreading-f1bab1a2ed6b><br/>
+<https://www.youtube.com/watch?v=cN_DpYBzKso><br/>
+<http://www.usingcsp.com/cspbook.pdf><br/>
 
-
-## REMOVE THESE IDEAS
-
-> Do not communicate by sharing memory; instead, share memory by communicating.
