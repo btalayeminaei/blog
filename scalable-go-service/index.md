@@ -5,8 +5,8 @@
 How do we show the customer a complete set of relevant hotel rates before they
 lose interest and close the tab? Despite trying various strategies to address
 this, the team will likely continue to face this challenge in the future as user
-expectations on speed and accuracy grow. The bottom line is, we need load a lot
-of rates from many different vendors to show that we have as complete of an
+expectations on speed and accuracy grow. The bottom line is, we need to load a
+lot of rates from many different vendors to show that we have as complete of an
 inventory as any other travel site. And we need to do this fast.
 
 Two of our main hotel vendors have announced major changes to the APIs we use to
@@ -28,9 +28,9 @@ search results to come back.
 
 Since we have no influence on how our vendors' APIs are designed, it was clear
 to the team that we had to parallelize our rates requests for individual hotels.
-We are already parallelizing these requests in our services that interact with
-the sunsetting APIs. The existing implementation uses Javascript promises to
-create multiple concurrent requests for hotel rates. We wanted to evaluate this
+We were already parallelizing these requests in our services that interact with
+the sunsetting APIs. The original implementation used Javascript promises to
+create multiple concurrent calls for hotel rates. We wanted to evaluate this
 implementation and look for ways to improve it by using a more suitable
 programming language or paradigm that could help the efficiency and design of
 our concurrent program.
@@ -100,14 +100,14 @@ func getRates(hotelIds []int, checkInDate string, checkOutDate string) []hotelWi
 
 We were quickly able to implement this solution and see an improvement in the
 load time, which was a great proof of concept. However, there were some concerns
-regarding the scalability, configurability, and maintainability, of this
+regarding the scalability, configurability, and maintainability of this
 solution. `goroutines` are cheap and a typical `go` program can spawn thousands
 of them during its runtime. However, with this implementation we could
-potentially spawn hundreds of routines at any moment. More concerning is that the
-contents of the request have large consequences on the internal resources of the
-application. Even if thoroughly validated the request to ensure it would not
-abuse our internal resources, we were wary that this solution did not give us
-the freedom to configure the resources we want to make available.
+potentially spawn hundreds of routines at any moment. The concern was that the
+contents of an individual request dictated how much internal resources were
+allocated. Even if the request was validated to ensure the underlying capacities
+were not abused, this solution did not give us the freedom to configure how much
+resources we wanted to make available.
 
 ## The Worker Model
 
@@ -130,9 +130,9 @@ before contacting the vendor. However, we noticed that multiple rate loaders can
 execute independently once they have all of the necessary info. Once we
 facilitate proper communication between the components, we can start regarding
 them as workers that receive required parameters from `channels`, perform their
-task, and communicate result through `channels`. Groups of workers that perform
-the same tasks can be regarded as a pool of workers. They all listen on a single
-channel for requests they can process.
+task, and communicate the result through `channels`. Groups of workers that
+perform the same tasks can be regarded as a pool of workers. They all listen on
+a single channel for requests they can process.
 
 <p align="center">
     <img src="./pictures/third.jpg" width="600" heigth:"400"/>
@@ -294,15 +294,15 @@ func (tl *TokenLoader) Stop() {
 
 ## Importance of Communication
 
-As these vendor services grow, the teams has had some discussions around how
-much we should stick to the worker model as we add features. The debate usually
-revolves around whether another worker or pool of workers is required to add
-small features, which would normally be implemented as helper functions. For
-example, a recent feature we added was the ability to log all interactions with
-the vendors' APIs to S3. This feature was initially implemented with a simple
-helper function that would take a JSON object and log it in our S3 bucket. To
-ensure that the request to S3 did not block the regular flow, we called the
-helper function in a `goroutine`.
+As these vendor services grow, the team has had discussions around how much we
+should stick to the worker model as we add features. The debate usually revolves
+around whether another worker or pool of workers is required to add small
+features, which would normally be implemented as helper functions. For example,
+a recent feature we added was the ability to log all interactions with the
+vendors' APIs to S3. This feature was initially implemented with a simple helper
+function that would take a JSON object and log it in our S3 bucket. To ensure
+that the request to S3 did not block the regular flow, we called the helper
+function in a `goroutine`.
 
 This solution was not consistent with the rest of the system. Conceptually we
 had added a component that could execute independently but effectively
