@@ -55,17 +55,17 @@ Following our agile mindset, we jumped into writing `go` and got to a MVP quickl
 We started by creating a solution that would simply use the concurrent primitives in `go` to parallelize loading rates for each hotel.
 This new service would receive a list of hotels and spawn a new `goroutine` to fetch rates for each hotel.
 We used a buffered channel to aggregate the results from each process.
+// given an array of hotel ids and search params, concurrently load rates for each hotel
+// make http call to vendor for this hotel in a goroutine
 
 
 ```go
 
-// given an array of hotel ids and search params, concurrently load rates for each hotel
 func getRates(hotelIds []int, checkInDate string, checkOutDate string) []hotelWithRates {
    var rates []hotelWithRates
    ch := make(chan hotelWithRates, len(hotelIds))
 
    for _, hotelID := range hotelIds {
-       // make http call to vendor for this hotel in a goroutine
        go getHotelRates(ch, hotelID, checkInDate, checkOutDate)
    }
 
@@ -160,6 +160,8 @@ func main() {
 		wg.Done()
 	}()
 
+    wg.Wait()
+
     // omitting implementation of gracefully shutting down all the workers
 }
 ```
@@ -188,6 +190,15 @@ func RatesHandler(ratesRQChan chan domain.RateRQ) func(w http.ResponseWriter, r 
 }
 ```
 
+// Start initializes and starts n unique rate loader based on the Count parameter.
+// Each rate loader listens for requests on the pool's In channel.
+// For each request, a loader asks for a token through the TokenRQChan,
+// gets rates from the vendor, and puts the result on the requests'
+// desired response channel (RateRSChan).
+
+					// ask for a token from a token loader
+    // blocks until all workers in the pool have stopped
+
 #### Rate Loader Pool
 
 ```go
@@ -198,11 +209,6 @@ type RateLoaderPool struct {
 	stop          chan struct{}
 }
 
-// Start initializes and starts n unique rate loader based on the Count parameter.
-// Each rate loader listens for requests on the pool's In channel.
-// For each request, a loader asks for a token through the TokenRQChan,
-// gets rates from the vendor, and puts the result on the requests'
-// desired response channel (RateRSChan).
 func (rlp *RateLoaderPool) Start() {
 	rlp.stop = make(chan struct{}, 1)
 	var wg sync.WaitGroup
@@ -215,7 +221,6 @@ func (rlp *RateLoaderPool) Start() {
 				select {
 				case rq := <-rlp.In:
 
-					// ask for a token from a token loader
 					rlp.TokenRQChan <- TokenRQ{...}
 					token := <-tokenRSChan
 
@@ -230,11 +235,9 @@ func (rlp *RateLoaderPool) Start() {
 			wg.Done()
 		}()
 	}
-    // blocks until all workers in the pool have stopped
 	wg.Wait()
 }
 
-// Stop stops all workers in the pool
 func (rlp *RateLoaderPool) Stop() {
 	close(rlp.stop)
 }
@@ -248,7 +251,6 @@ type TokenLoader struct {
 	stop chan struct{}
 }
 
-// Start initializes and starts the token loader
 func (tl *TokenLoader) Start() {
 	tl.stop = make(chan struct{}, 1)
 	var token *TokenRS
@@ -263,7 +265,6 @@ loop:
 	}
 }
 
-// Stop token loader
 func (tl *TokenLoader) Stop() {
 	close(tl.stop)
 }
