@@ -40,23 +40,23 @@ We used a buffered channel to aggregate the results from each process.
 
 ```go
 func getRates(hotelIds []int, checkInDate string, checkOutDate string) []hotelWithRates {
-   var rates []hotelWithRates
-   ch := make(chan hotelWithRates, len(hotelIds))
+  var rates []hotelWithRates
+  ch := make(chan hotelWithRates, len(hotelIds))
 
-   for _, hotelID := range hotelIds {
-       go getHotelRates(ch, hotelID, checkInDate, checkOutDate)
-   }
+  for _, hotelID := range hotelIds {
+    go getHotelRates(ch, hotelID, checkInDate, checkOutDate)
+  }
 
-   for range hotelIds {
-       hotelWithRates := <-ch
-       rates = append(rates, hotelWithRates)
-   }
+  for range hotelIds {
+    hotelWithRates := <-ch
+    rates = append(rates, hotelWithRates)
+  }
 
-   if rates == nil || len(rates) < 1 {
-       return rates, fmt.Errorf("no rates found for search criteria")
-   }
+  if rates == nil || len(rates) < 1 {
+    return rates, fmt.Errorf("no rates found for search criteria")
+  }
 
-   return rates, nil
+  return rates, nil
 }
 
 ```
@@ -103,42 +103,42 @@ One might configure a lower and an upper bound for how many rate loaders they wa
 
 ```go
 func main() {
-    var wg sync.WaitGroup
-    rateLoaderCount := 10
-    tokenRQChan := make(chan domain.TokenRQ)
-    ratesRQChan := make(chan domain.RateRQ, rateLoaderCount*2)
+  var wg sync.WaitGroup
+  rateLoaderCount := 10
+  tokenRQChan := make(chan domain.TokenRQ)
+  ratesRQChan := make(chan domain.RateRQ, rateLoaderCount*2)
 
-    var tokenLoader = TokenLoader{
-        In:   tokenRQChan,
-    }
-    var rateLoaderPool = RateLoaderPool{
-        Count:         rateLoaderCount,
-        In:            ratesRQChan,
-        TokenRQChan:   tokenRQChan,
-    }
+  var tokenLoader = TokenLoader{
+    In:  tokenRQChan,
+  }
+  var rateLoaderPool = RateLoaderPool{
+    Count:       rateLoaderCount,
+    In:          ratesRQChan,
+    TokenRQChan: tokenRQChan,
+  }
 
-    appRouter := mux.NewRouter()
-    appRouter.HandleFunc("/rates", RatesHandler(ratesRQChan))
-    srv := http.Server{
-        Addr:    "127.0.0.1:8080",
-        Handler: appRouter,
-    }
+  appRouter := mux.NewRouter()
+  appRouter.HandleFunc("/rates", RatesHandler(ratesRQChan))
+  srv := http.Server{
+    Addr:    "127.0.0.1:8080",
+    Handler: appRouter,
+  }
 
-    wg.Add(1)
-    go func() {
-        tokenLoader.Start()
-        wg.Done()
-    }()
+  wg.Add(1)
+  go func() {
+    tokenLoader.Start()
+    wg.Done()
+  }()
 
-    wg.Add(1)
-    go func() {
-        rateLoaderPool.Start()
-        wg.Done()
-    }()
+  wg.Add(1)
+  go func() {
+    rateLoaderPool.Start()
+    wg.Done()
+  }()
 
-    wg.Wait()
+  wg.Wait()
 
-    // omitting implementation of gracefully shutting down all the workers
+  // omitting implementation of gracefully shutting down all the workers
 }
 ```
 
@@ -146,24 +146,24 @@ func main() {
 
 ```go
 func RatesHandler(ratesRQChan chan domain.RateRQ) func(w http.ResponseWriter, r *http.Request) {
-    return func(w http.ResponseWriter, r *http.Request) {
-        var rates []types.HotelRateInfo
-        rateRSChan := make(chan RateRS, len(r.HotelIds))
-        for _, hotelID := range r.HotelIds {
-            ratesRQChan <- RateRQ{
-                HotelID:                 hotelID,
-                CheckInDate:             r.CheckInDate,
-                CheckOutDate:            r.CheckOutDate,
-                RateRSChan:              rateRSChan,
-            }
-        }
-        for range p.HotelIds {
-            res := <-rateRSChan
-            rates = append(rates, res.HotelRateInfo)
-        }
-        w.WriteHeader(http.StatusOK)
-        w.Write(json.Marshal(rates))
+  return func(w http.ResponseWriter, r *http.Request) {
+    var rates []types.HotelRateInfo
+    rateRSChan := make(chan RateRS, len(r.HotelIds))
+    for _, hotelID := range r.HotelIds {
+      ratesRQChan <- RateRQ{
+        HotelID:      hotelID,
+        CheckInDate:  r.CheckInDate,
+        CheckOutDate: r.CheckOutDate,
+        RateRSChan:   rateRSChan,
+      }
     }
+    for range p.HotelIds {
+      res := <-rateRSChan
+      rates = append(rates, res.HotelRateInfo)
+    }
+    w.WriteHeader(http.StatusOK)
+    w.Write(json.Marshal(rates))
+  }
 }
 ```
 
@@ -171,39 +171,39 @@ func RatesHandler(ratesRQChan chan domain.RateRQ) func(w http.ResponseWriter, r 
 
 ```go
 type RateLoaderPool struct {
-    Count         int
-    In            chan RateRQ
-    TokenRQChan   chan<- TokenRQ
-    stop          chan struct{}
+  Count       int
+  In          chan RateRQ
+  TokenRQChan chan<- TokenRQ
+  stop        chan struct{}
 }
 
 func (rlp *RateLoaderPool) Start() {
-    rlp.stop = make(chan struct{}, 1)
-    var wg sync.WaitGroup
-    for i := 0; i < rlp.Count; i++ {
-        wg.Add(1)
-        tokenRSChan := make(chan TokenRS)
-        go func() {
-        loop:
-            for {
-                select {
-                    case rq := <-rlp.In:
-                        rlp.TokenRQChan <- TokenRQ{...}
-                        token := <-tokenRSChan
-                        r := getRateFromVendor(...)
-                        rq.RateRSChan <- RateRS{r}
-                    case <-rlp.stop:
-                        break loop
-                }
-            }
-            wg.Done()
-        }()
-    }
-    wg.Wait()
+  rlp.stop = make(chan struct{}, 1)
+  var wg sync.WaitGroup
+  for i := 0; i < rlp.Count; i++ {
+    wg.Add(1)
+    tokenRSChan := make(chan TokenRS)
+    go func() {
+    loop:
+      for {
+        select {
+          case rq := <-rlp.In:
+            rlp.TokenRQChan <- TokenRQ{...}
+            token := <-tokenRSChan
+            r := getRateFromVendor(...)
+            rq.RateRSChan <- RateRS{r}
+          case <-rlp.stop:
+            break loop
+        }
+      }
+      wg.Done()
+    }()
+  }
+  wg.Wait()
 }
 
 func (rlp *RateLoaderPool) Stop() {
-    close(rlp.stop)
+  close(rlp.stop)
 }
 ```
 
@@ -211,26 +211,26 @@ func (rlp *RateLoaderPool) Stop() {
 
 ```go
 type TokenLoader struct {
-    In   <-chan TokenRQ
-    stop chan struct{}
+  In   <-chan TokenRQ
+  stop chan struct{}
 }
 
 func (tl *TokenLoader) Start() {
-    tl.stop = make(chan struct{}, 1)
-    var token *TokenRS
+  tl.stop = make(chan struct{}, 1)
+  var token *TokenRS
 loop:
-    for {
-        select {
-            case rq := <-tl.In:
-                rq.TokenRSChan <- getAuthenticationToken(...)
-            case <-tl.stop:
-                break loop
-        }
+  for {
+    select {
+      case rq := <-tl.In:
+        rq.TokenRSChan <- getAuthenticationToken(...)
+      case <-tl.stop:
+        break loop
     }
+  }
 }
 
 func (tl *TokenLoader) Stop() {
-    close(tl.stop)
+  close(tl.stop)
 }
 ```
 
